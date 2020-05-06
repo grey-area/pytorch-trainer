@@ -1,0 +1,4 @@
+PytorchTrainer.egg-info/
+__pycache__/
+pytorch_trainer/__pycache__/
+*~
