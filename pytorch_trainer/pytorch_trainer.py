@@ -3,6 +3,7 @@ import torch.optim as optim
 
 import tensorboardX
 
+import types
 import math
 from datetime import datetime
 import random
@@ -10,6 +11,18 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from collections import defaultdict
+
+
+def zero_backward_clip_step(scaler, model, optimizer, loss, grad_clip_thresh=None):
+    optimizer.zero_grad()
+    scaler.scale(loss).backward()
+    scaler.unscale_(optimizer)
+    if grad_clip_thresh is not None:
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), grad_clip_thresh
+        ).item()
+    scaler.step(optimizer)
+    return grad_norm
 
 
 class PytorchTrainer:
@@ -72,6 +85,9 @@ class PytorchTrainer:
             self.models[name] = model
             self.optimizers[name] = optimizer
         self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler.zero_backward_clip_step = types.MethodType(
+            zero_backward_clip_step, self.scaler
+        )
 
         # Dataloaders
         self.train_dataloader = train_dataloader

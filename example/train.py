@@ -21,13 +21,7 @@ def minibatch_fn(iteration, minibatch, models, optimizers,
 
     if train:
         optimizer = optimizers['model']
-        optimizer.zero_grad()
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
-        results['grad_norm'] = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), grad_clip_thresh
-        ).item()
-        scaler.step(optimizer)
+        results['grad_norm'] = scaler.zero_backward_clip_step(model, optimizer, loss, grad_clip_thresh)
         scaler.update()
 
     return results
