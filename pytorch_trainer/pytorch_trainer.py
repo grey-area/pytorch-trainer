@@ -3,10 +3,13 @@ import torch.optim as optim
 
 import tensorboardX
 
+import git
 import types
 import math
 from datetime import datetime
+import time
 import random
+import json
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
@@ -48,13 +51,38 @@ class PytorchTrainer:
         random.seed(seed)
 
         # Checkpoint saving path
-        output_path = Path('outputs') / output_name / datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        time_str = datetime.now().strftime('%H-%M-%S')
+        output_path = Path('outputs') / output_name / f'{date_str}_{time_str}'
         self.checkpoint_save_path = output_path / 'checkpoints'
         self.checkpoint_save_path.mkdir(parents=True, exist_ok=True)
 
         # Save configs
         with (output_path / 'config.conf').open('w') as f:
             f.write('\n'.join(f'{arg.replace("_", "-")}: {getattr(config, arg)}' for arg in vars(config) if arg != 'config'))
+
+        # Save git and experiment info
+        exp_info = {'run': {'date': date_str}}
+        try:
+            repo = git.Repo(search_parent_directories=True)
+            head_obj = repo.head.object
+            git_info = {
+                'commit': head_obj.hexsha,
+                'remotes': list(repo.remote().urls),
+                'branch': repo.active_branch.name,
+                'author': {
+                    'name': head_obj.author.name,
+                    'email': head_obj.author.email
+                }
+            }
+            exp_info['git'] = git_info
+        except (git.exc.InvalidGitRepositoryError, ValueError):
+            pass
+        self.exp_info_path = output_path / 'run_info.json'
+        with self.exp_info_path.open('w') as f:
+            json.dump(exp_info, f, indent=2)
+        self.exp_info = exp_info
+        self.experiment_start_time = time.time()
 
         # Logger
         log_path = output_path / 'logs'
@@ -266,3 +294,8 @@ class PytorchTrainer:
 
                     if self.iteration > self.total_iterations:
                         break
+
+        run_duration = (time.time() - self.experiment_start_time) / 3600
+        self.exp_info['run']['duration_hours'] = f'{run_duration:.02f}'
+        with self.exp_info_path.open('w') as f:
+            json.dump(self.exp_info, f, indent=2)

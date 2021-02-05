@@ -18,6 +18,7 @@ if __name__ == '__main__':
             'torch',
             'tensorboardX',
             'tqdm',
+            'gitpython'
         ],
         classifiers=[
             'License :: OSI Approved :: MIT License',
