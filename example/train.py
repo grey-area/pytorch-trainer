@@ -6,25 +6,29 @@ from dataloaders import get_dataloaders
 
 
 def minibatch_fn(iteration, minibatch, models, optimizers,
-                 grad_clip_thresh, train):
+                 scaler, grad_clip_thresh, train):
     results = {}
+    criterion = torch.nn.CrossEntropyLoss()
 
     x, y = minibatch
     model = models['model']
-    y_pred = model(x)
 
-    criterion = torch.nn.CrossEntropyLoss()
-    loss = criterion(y_pred, y)
+    with torch.cuda.amp.autocast():
+        y_pred = model(x)
+        loss = criterion(y_pred, y)
+
     results['loss'] = loss.item()
 
     if train:
         optimizer = optimizers['model']
         optimizer.zero_grad()
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
         results['grad_norm'] = torch.nn.utils.clip_grad_norm_(
             model.parameters(), grad_clip_thresh
         ).item()
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
     return results
 

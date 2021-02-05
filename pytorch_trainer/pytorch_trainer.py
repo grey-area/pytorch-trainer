@@ -71,6 +71,7 @@ class PytorchTrainer:
         for name, model, optimizer in zip(model_names, model_list, optimizers):
             self.models[name] = model
             self.optimizers[name] = optimizer
+        self.scaler = torch.cuda.amp.GradScaler()
 
         # Dataloaders
         self.train_dataloader = train_dataloader
@@ -167,6 +168,7 @@ class PytorchTrainer:
                 minibatch=minibatch,
                 models=self.models,
                 optimizers={},
+                scaler=None,
                 grad_clip_thresh=None,
                 train=False
             )
@@ -216,6 +218,7 @@ class PytorchTrainer:
                         minibatch=minibatch,
                         models=self.models,
                         optimizers=self.optimizers,
+                        scaler=self.scaler,
                         grad_clip_thresh=self.grad_clip_thresh,
                         train=True
                     )
