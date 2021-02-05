@@ -1,11 +1,10 @@
 import torch
 import torch.optim as optim
 
-from apex import amp
 import tensorboardX
 
-import types
 import math
+from datetime import datetime
 import random
 import numpy as np
 from tqdm import tqdm
@@ -13,28 +12,14 @@ from pathlib import Path
 from collections import defaultdict
 
 
-
-def zero_backward_step(opt, loss, grad_clip_thresh=None):
-    opt.zero_grad()
-
-    with amp.scale_loss(loss, opt) as scaled_loss:
-            scaled_loss.backward()
-
-    if grad_clip_thresh is not None:
-        opt.recorded_grad_norm = torch.nn.utils.clip_grad_norm_(
-            amp.master_params(opt), grad_clip_thresh
-        )
-
-    opt.step()
-
-
 class PytorchTrainer:
     def __init__(self, model_names, model_list,
                  train_dataloader,
                  valid_dataloader,
                  minibatch_fn,
+                 config,
                  checkpoint_load_path='',
-                 output_path='outputs/default',
+                 output_name='default',
                  learning_rate=1e-3, weight_decay=1e-4,
                  grad_clip_thresh=1.0,
                  num_learning_rate_updates=100,
@@ -50,9 +35,13 @@ class PytorchTrainer:
         random.seed(seed)
 
         # Checkpoint saving path
-        output_path = Path(output_path)
+        output_path = Path('outputs') / output_name / datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.checkpoint_save_path = output_path / 'checkpoints'
         self.checkpoint_save_path.mkdir(parents=True, exist_ok=True)
+
+        # Save configs
+        with (output_path / 'config.conf').open('w') as f:
+            f.write('\n'.join(f'{arg.replace("_", "-")}: {getattr(config, arg)}' for arg in vars(config) if arg != 'config'))
 
         # Logger
         log_path = output_path / 'logs'
@@ -75,17 +64,7 @@ class PytorchTrainer:
                 lr=self.learning_rate,
                 weight_decay=weight_decay
             )
-            optimizer.zero_backward_step = types.MethodType(
-                zero_backward_step, optimizer
-            )
             optimizers.append(optimizer)
-
-        model_list, optimizers = amp.initialize(
-            model_list,
-            optimizers,
-            opt_level='O1',
-            loss_scale='dynamic'
-        )
 
         self.models = {}
         self.optimizers = {}
