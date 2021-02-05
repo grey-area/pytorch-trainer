@@ -4,6 +4,7 @@ import torch.optim as optim
 import tensorboardX
 
 import git
+from pip._internal.operations import freeze as pip_freeze
 import types
 import math
 from datetime import datetime
@@ -61,8 +62,7 @@ class PytorchTrainer:
         with (output_path / 'config.conf').open('w') as f:
             f.write('\n'.join(f'{arg.replace("_", "-")}: {getattr(config, arg)}' for arg in vars(config) if arg != 'config'))
 
-        # Save git and experiment info
-        exp_info = {'run': {'date': date_str}}
+        # Save git info
         try:
             repo = git.Repo(search_parent_directories=True)
             head_obj = repo.head.object
@@ -75,14 +75,19 @@ class PytorchTrainer:
                     'email': head_obj.author.email
                 }
             }
-            exp_info['git'] = git_info
+            with (output_path / 'git_info.json').open('w') as f:
+                json.dump(git_info, f, indent=2)
         except (git.exc.InvalidGitRepositoryError, ValueError):
             pass
-        self.exp_info_path = output_path / 'run_info.json'
-        with self.exp_info_path.open('w') as f:
-            json.dump(exp_info, f, indent=2)
-        self.exp_info = exp_info
-        self.experiment_start_time = time.time()
+
+        # Save run info
+        self.run_info = {'start_date': date_str}
+        self.run_info_path = output_path / 'run_info.json'
+        self.run_start_time = time.time()
+
+        # Save pip installed info
+        with (output_path / 'pip_freeze.txt').open('w') as f:
+            f.write('\n'.join(pip_freeze.freeze()))
 
         # Logger
         log_path = output_path / 'logs'
@@ -295,7 +300,8 @@ class PytorchTrainer:
                     if self.iteration > self.total_iterations:
                         break
 
-        run_duration = (time.time() - self.experiment_start_time) / 3600
-        self.exp_info['run']['duration_hours'] = f'{run_duration:.02f}'
-        with self.exp_info_path.open('w') as f:
-            json.dump(self.exp_info, f, indent=2)
+        self.run_info['end_date'] = datetime.now().strftime('%Y-%m-%d')
+        run_duration = (time.time() - self.run_start_time) / 3600
+        self.run_info['duration_hours'] = f'{run_duration:.02f}'
+        with self.run_info_path.open('w') as f:
+            json.dump(self.run_info, f, indent=2)
