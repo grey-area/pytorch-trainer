@@ -5,6 +5,7 @@ import tensorboardX
 
 import git
 from pip._internal.operations import freeze as pip_freeze
+import platform
 import types
 import math
 from datetime import datetime
@@ -59,8 +60,12 @@ class PytorchTrainer:
         self.checkpoint_save_path.mkdir(parents=True, exist_ok=True)
 
         # Save configs
+        config_dict = {arg.replace("_", "-"): getattr(config, arg) for arg in vars(config) if arg != 'config'}
         with (output_path / 'config.conf').open('w') as f:
-            f.write('\n'.join(f'{arg.replace("_", "-")}: {getattr(config, arg)}' for arg in vars(config) if arg != 'config'))
+            f.write('\n'.join(f'{key}: {value}' for key, value in config_dict.items()))
+
+        # For storing metadata with checkpoint
+        self.metadata = {'config': config_dict}
 
         # Save git info
         try:
@@ -68,26 +73,39 @@ class PytorchTrainer:
             head_obj = repo.head.object
             git_info = {
                 'commit': head_obj.hexsha,
-                'remotes': list(repo.remote().urls),
                 'branch': repo.active_branch.name,
                 'author': {
                     'name': head_obj.author.name,
                     'email': head_obj.author.email
                 }
             }
+            try:
+                git_info['remotes'] = list(repo.remote().urls),
+            except ValueError:
+                pass
             with (output_path / 'git_info.json').open('w') as f:
                 json.dump(git_info, f, indent=2)
+            self.metadata['git'] = git_info
         except (git.exc.InvalidGitRepositoryError, ValueError):
             pass
 
         # Save run info
-        self.run_info = {'start_date': date_str}
+        run_info = {
+            'start_date': date_str,
+            'directory': str(Path('.').resolve()),
+            'hostname': platform.node()
+        }
         self.run_info_path = output_path / 'run_info.json'
         self.run_start_time = time.time()
+        self.metadata['run'] = run_info
+        with self.run_info_path.open('w') as f:
+            json.dump(self.metadata['run'], f, indent=2)
 
         # Save pip installed info
+        pip_info = list(pip_freeze.freeze())
+        self.metadata['pip'] = pip_info
         with (output_path / 'pip_freeze.txt').open('w') as f:
-            f.write('\n'.join(pip_freeze.freeze()))
+            f.write('\n'.join(pip_info))
 
         # Logger
         log_path = output_path / 'logs'
@@ -146,6 +164,12 @@ class PytorchTrainer:
             self.load_checkpoint(checkpoint_load_path)
 
 
+    def update_run_metadata(self):
+        self.metadata['run']['end_date'] = datetime.now().strftime('%Y-%m-%d')
+        run_duration = (time.time() - self.run_start_time) / 3600
+        self.metadata['run']['duration_hours'] = f'{run_duration:.02f}'
+
+
     def load_checkpoint(self, checkpoint_path):
         checkpoint_dict = torch.load(checkpoint_path)
         self.iteration = checkpoint_dict['iteration']
@@ -162,6 +186,10 @@ class PytorchTrainer:
         checkpoint_dict = {}
 
         checkpoint_dict['iteration'] = self.iteration
+
+        # Save metadata with checkpoint
+        self.update_run_metadata()
+        checkpoint_dict['metadata'] = self.metadata
 
         for model_name, model in self.models.items():
             checkpoint_dict[model_name] = model.state_dict()
@@ -300,8 +328,6 @@ class PytorchTrainer:
                     if self.iteration > self.total_iterations:
                         break
 
-        self.run_info['end_date'] = datetime.now().strftime('%Y-%m-%d')
-        run_duration = (time.time() - self.run_start_time) / 3600
-        self.run_info['duration_hours'] = f'{run_duration:.02f}'
+        self.update_run_metadata()
         with self.run_info_path.open('w') as f:
-            json.dump(self.run_info, f, indent=2)
+            json.dump(self.metadata['run'], f, indent=2)
