@@ -1,7 +1,6 @@
 import torch
 import torch.optim as optim
-
-import tensorboardX
+from torch.utils.tensorboard import SummaryWriter
 
 import git
 from pip._internal.operations import freeze as pip_freeze
@@ -110,7 +109,7 @@ class PytorchTrainer:
         # Logger
         log_path = output_path / 'logs'
         log_path.mkdir(parents=True, exist_ok=True)
-        self.log_writer = tensorboardX.SummaryWriter(log_path)
+        self.log_writer = SummaryWriter(log_path)
 
         torch.backends.cudnn.benchmark = True
 
