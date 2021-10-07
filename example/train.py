@@ -32,9 +32,11 @@ def parse_args():
     parser.add_argument('--config', is_config_file=True)
     parser.add_argument('--output-name', type=str, default='default')
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--iterations', type=int, default=1000)
+    parser.add_argument('--iterations', type=int, default=10000)
     parser.add_argument('--iterations-per-validation', type=int, default=200)
-    parser.add_argument('--iterations-per-checkpoint', type=int, default=1000)
+    parser.add_argument('--iterations-per-checkpoint', type=int, default=10000)
+    parser.add_argument('--learning-rate', type=float, default=1e-3)
+    parser.add_argument('--learning-rate-cycle-length', type=int, default=1000)
     return parser.parse_args()
 
 
@@ -54,7 +56,9 @@ if __name__ == '__main__':
         iterations_per_validation=args.iterations_per_validation,
         iterations_per_checkpoint=args.iterations_per_checkpoint,
         output_name=args.output_name,
-        config=args
+        config=args,
+        learning_rate=args.learning_rate,
+        learning_rate_cycle_length=args.learning_rate_cycle_length
     )
 
     trainer.run()

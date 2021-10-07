@@ -1,6 +1,7 @@
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+from .lr_scheduler import CosineAnnealingWarmupRestarts
 
 import git
 from pip._internal.operations import freeze as pip_freeze
@@ -37,10 +38,11 @@ class PytorchTrainer:
                  config,
                  checkpoint_load_path='',
                  output_name='default',
-                 learning_rate=1e-3, weight_decay=1e-4,
+                 learning_rate=1e-3,
+                 learning_rate_warmup_steps=100,
+                 learning_rate_cycle_length=1000,
+                 weight_decay=1e-4,
                  grad_clip_thresh=1.0,
-                 num_learning_rate_updates=100,
-                 total_learning_rate_decay=0.01,
                  total_iterations=100000,
                  iterations_per_validation=1000,
                  iterations_per_checkpoint=10000,
@@ -119,15 +121,26 @@ class PytorchTrainer:
 
         # Set up optimizers
         optimizers = []
-        self.learning_rate = learning_rate
         self.grad_clip_thresh = grad_clip_thresh
         for model in model_list:
             optimizer = optim.AdamW(
                 model.parameters(),
-                lr=self.learning_rate,
+                lr=learning_rate,
                 weight_decay=weight_decay
             )
             optimizers.append(optimizer)
+
+        # Set up schedulers
+        self.schedulers = []
+        for optimizer in optimizers:
+            scheduler = CosineAnnealingWarmupRestarts(
+                optimizer=optimizer,
+                first_cycle_steps=learning_rate_cycle_length,
+                min_lr=0.0,
+                max_lr=learning_rate,
+                warmup_steps=learning_rate_warmup_steps
+            )
+            self.schedulers.append(scheduler)
 
         self.models = {}
         self.optimizers = {}
@@ -148,13 +161,6 @@ class PytorchTrainer:
         self.iterations_per_validation = iterations_per_validation
         self.iterations_per_checkpoint = iterations_per_checkpoint
 
-        # Learning rate scheduling
-        self.initial_lr = learning_rate
-        self.final_lr = learning_rate * total_learning_rate_decay
-        self.iterations_per_lr_update = 1 + math.ceil(total_iterations / (num_learning_rate_updates + 1))
-        if self.iterations_per_lr_update < 100:
-            self.iterations_per_lr_update = 100
-
         # Registered minibatch function
         self.minibatch_fn = minibatch_fn
 
@@ -171,7 +177,6 @@ class PytorchTrainer:
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint_dict = torch.load(checkpoint_path)
-        self.iteration = checkpoint_dict['iteration']
 
         for model_name, model in self.models.items():
             model.load_state_dict(checkpoint_dict[model_name])
@@ -199,12 +204,12 @@ class PytorchTrainer:
         torch.save(checkpoint_dict, checkpoint_fname)
 
 
-    def update_log(self, data, split='train'):
+    def update_log(self, data, learning_rate=None, split='train'):
         if split == 'train':
             # Record learning rate
             self.log_writer.add_scalar(
                 f'learning_rate',
-                self.learning_rate,
+                learning_rate,
                 self.iteration
             )
 
@@ -266,22 +271,12 @@ class PytorchTrainer:
         pbar.update(1)
 
 
-    def update_learning_rate(self):
-        alpha = self.iteration / self.total_iterations
-        self.learning_rate = self.final_lr**alpha * self.initial_lr**(1 - alpha)
-
-        for optimizer in self.optimizers.values():
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = self.learning_rate
-
-
     def run(self):
         for model in self.models.values():
             model.train()
 
         with tqdm(total=self.total_iterations) as pbar:
             pbar.update(self.iteration)
-            self.update_learning_rate()
 
             result_history = defaultdict(list)
             while self.iteration < self.total_iterations:
@@ -311,10 +306,10 @@ class PytorchTrainer:
                             result_history[key] = result_history[key][-10:]
                             smoothed_results[key] = np.mean(result_history[key])
 
-                        self.update_log(smoothed_results, split='train')
+                        self.update_log(smoothed_results, self.schedulers[0].get_lr()[0], split='train')
 
-                    if self.iteration % self.iterations_per_lr_update == 0:
-                        self.update_learning_rate()
+                    for scheduler in self.schedulers:
+                        scheduler.step()
 
                     if self.iteration % self.iterations_per_validation == 0:
                         self.do_validation()
