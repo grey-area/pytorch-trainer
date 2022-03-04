@@ -18,7 +18,7 @@ from collections import defaultdict
 
 
 def zero_backward_clip_step(scaler, model, optimizer, loss, grad_clip_thresh=None):
-    optimizer.zero_grad()
+    optimizer.zero_grad(set_to_none=True)
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
     if grad_clip_thresh is not None:
@@ -239,15 +239,16 @@ class PytorchTrainer:
         for batch_i, minibatch in enumerate(tqdm(self.valid_dataloader)):
             minibatch = self.to_cuda(minibatch)
 
-            minibatch_results = self.minibatch_fn(
-                iteration=self.iteration,
-                minibatch=minibatch,
-                models=self.models,
-                optimizers={},
-                scaler=None,
-                grad_clip_thresh=None,
-                train=False
-            )
+            with torch.no_grad():
+                minibatch_results = self.minibatch_fn(
+                    iteration=self.iteration,
+                    minibatch=minibatch,
+                    models=self.models,
+                    optimizers={},
+                    scaler=None,
+                    grad_clip_thresh=None,
+                    train=False
+                )
             for key, value in minibatch_results.items():
                 valid_results[key] += value
         for key, value in  valid_results.items():
