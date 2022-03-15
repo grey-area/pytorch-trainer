@@ -29,6 +29,13 @@ def zero_backward_clip_step(scaler, model, optimizer, loss, grad_clip_thresh=Non
     return grad_norm
 
 
+def parse_arg_value(value):
+    if isinstance(value, (tuple, list)):
+        return f'[{", ".join(map(str, value))}]'
+    else:
+        return value
+
+
 class PytorchTrainer:
     def __init__(self, model_names, model_list,
                  train_dataloader,
@@ -59,7 +66,7 @@ class PytorchTrainer:
         self.checkpoint_save_path.mkdir(parents=True, exist_ok=True)
 
         # Save configs
-        config_dict = {arg.replace("_", "-"): getattr(config, arg) for arg in vars(config) if arg != 'config'}
+        config_dict = {key.replace("_", "-"): parse_arg_value(value) for key, value in vars(config).items() if key != 'config' and value is not None}
         with (output_path / 'config.conf').open('w') as f:
             f.write('\n'.join(f'{key}: {value}' for key, value in config_dict.items()))
 
