@@ -43,6 +43,8 @@ class PytorchTrainer:
                  minibatch_fn,
                  config,
                  checkpoint_load_path='',
+                 checkpoint_load_ignore_layers={},
+                 checkpoint_load_model_only=False,
                  output_name='default',
                  learning_rate=1e-3, weight_decay=1e-4,
                  grad_clip_thresh=1.0,
@@ -118,8 +120,6 @@ class PytorchTrainer:
         log_path.mkdir(parents=True, exist_ok=True)
         self.log_writer = SummaryWriter(log_path)
 
-        torch.backends.cudnn.benchmark = True
-
         # Move models to GPU
         for model in model_list:
             model.cuda()
@@ -167,7 +167,11 @@ class PytorchTrainer:
 
         # Checkpoint loading
         if checkpoint_load_path != '':
-            self.load_checkpoint(checkpoint_load_path)
+            self.load_checkpoint(
+                checkpoint_load_path,
+                checkpoint_load_ignore_layers,
+                checkpoint_load_model_only
+            )
 
 
     def update_run_metadata(self):
@@ -176,15 +180,28 @@ class PytorchTrainer:
         self.metadata['run']['duration_hours'] = f'{run_duration:.02f}'
 
 
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, ignore_layers, model_only):
         checkpoint_dict = torch.load(checkpoint_path)
-        self.iteration = checkpoint_dict['iteration']
 
         for model_name, model in self.models.items():
-            model.load_state_dict(checkpoint_dict[model_name])
-        for model_name, optimizer in self.optimizers.items():
-            optimizer_key = f'{model_name}.optimizer'
-            optimizer.load_state_dict(checkpoint_dict[optimizer_key])
+            model_dict = checkpoint_dict[model_name]
+            # If there are layers to ignore
+            if model_name in ignore_layers and len(ignore_layers[model_name]) > 0:
+                for ignore_layer in ignore_layers[model_name]:
+                    if ignore_layer not in model_dict.keys():
+                        raise ValueError(f'Layer {ignore_layer} not found in model.')
+
+                model_dict = {k: v for k, v in model_dict.items() if k not in ignore_layers[model_name]}
+                dummy_dict = model.state_dict()
+                dummy_dict.update(model_dict)
+                model_dict = dummy_dict
+            model.load_state_dict(model_dict)
+
+        if not model_only:
+            self.iteration = checkpoint_dict['iteration']
+            for model_name, optimizer in self.optimizers.items():
+                optimizer_key = f'{model_name}.optimizer'
+                optimizer.load_state_dict(checkpoint_dict[optimizer_key])
 
 
     def save_checkpoint(self):
@@ -296,7 +313,6 @@ class PytorchTrainer:
                 for minibatch in self.train_dataloader:
                     minibatch = self.to_cuda(minibatch)
 
-                    # TODO, pass in other stuff?
                     minibatch_results = self.minibatch_fn(
                         iteration=self.iteration,
                         minibatch=minibatch,
@@ -313,7 +329,7 @@ class PytorchTrainer:
                     self.update_pbar(pbar, minibatch_results)
                     self.iteration += 1
 
-                    if self.iteration % 10 == 0:
+                    if self.iteration % 100 == 0:
                         smoothed_results = {}
                         for key in result_history:
                             result_history[key] = result_history[key][-10:]
