@@ -246,10 +246,10 @@ class PytorchTrainer:
             self.log_writer.add_scalar(f'{split}.{key}', value, self.iteration)
 
 
-    @staticmethod
-    def to_cuda(minibatch):
+    @classmethod
+    def to_cuda(cls, minibatch):
         if isinstance(minibatch, (list, tuple)):
-            minibatch = [x.cuda() for x in minibatch]
+            minibatch = [cls.to_cuda(x) for x in minibatch]
         else:
             minibatch = minibatch.cuda()
         return minibatch
