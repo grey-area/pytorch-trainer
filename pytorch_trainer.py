@@ -47,6 +47,8 @@ class PytorchTrainer:
                  checkpoint_load_model_only=False,
                  output_name='default',
                  learning_rate=1e-3, weight_decay=1e-4,
+                 optimizer_betas=(0.9, 0.999),
+                 optimizer_eps=1e-8,
                  grad_clip_thresh=1.0,
                  num_learning_rate_updates=100,
                  total_learning_rate_decay=0.01,
@@ -132,7 +134,9 @@ class PytorchTrainer:
             optimizer = optim.AdamW(
                 model.parameters(),
                 lr=self.learning_rate,
-                weight_decay=weight_decay
+                weight_decay=weight_decay,
+                betas=optimizer_betas,
+                eps=optimizer_eps
             )
             optimizers.append(optimizer)
 
