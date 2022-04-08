@@ -236,7 +236,7 @@ class PytorchTrainer:
             self.log_writer.add_scalar(
                 f'learning_rate',
                 self.learning_rate,
-                self.iteration
+                self.starting_iteration + self.iteration
             )
 
             # Record seperate optimizer gradient norms
@@ -245,7 +245,7 @@ class PytorchTrainer:
                     self.log_writer.add_scalar(
                         f'{model_name}.grad_norm',
                         opt.recorded_grad_norm,
-                        self.iteration
+                        self.starting_iteration + self.iteration
                     )
 
         # Record other data
