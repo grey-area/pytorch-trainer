@@ -52,6 +52,7 @@ class PytorchTrainer:
                  grad_clip_thresh=1.0,
                  num_learning_rate_updates=100,
                  total_learning_rate_decay=0.01,
+                 learning_rate_warm_up_iterations=100,
                  total_iterations=100000,
                  iterations_per_validation=1000,
                  iterations_per_checkpoint=10000,
@@ -128,7 +129,7 @@ class PytorchTrainer:
 
         # Set up optimizers
         optimizers = []
-        self.learning_rate = learning_rate
+        self.learning_rate = 1e-6
         self.grad_clip_thresh = grad_clip_thresh
         for model in model_list:
             optimizer = optim.AdamW(
@@ -154,12 +155,14 @@ class PytorchTrainer:
         self.train_dataloader = train_dataloader
         self.valid_dataloader = valid_dataloader
 
+        self.starting_iteration = 0
         self.iteration = 0
         self.total_iterations = total_iterations
         self.iterations_per_validation = iterations_per_validation
         self.iterations_per_checkpoint = iterations_per_checkpoint
 
         # Learning rate scheduling
+        self.learning_rate_warm_up_iterations = learning_rate_warm_up_iterations
         self.initial_lr = learning_rate
         self.final_lr = learning_rate * total_learning_rate_decay
         self.iterations_per_lr_update = 1 + math.ceil(total_iterations / (num_learning_rate_updates + 1))
@@ -202,7 +205,7 @@ class PytorchTrainer:
             model.load_state_dict(model_dict)
 
         if not model_only:
-            self.iteration = checkpoint_dict['iteration']
+            self.starting_iteration = checkpoint_dict['iteration']
             for model_name, optimizer in self.optimizers.items():
                 optimizer_key = f'{model_name}.optimizer'
                 optimizer.load_state_dict(checkpoint_dict[optimizer_key])
@@ -212,7 +215,7 @@ class PytorchTrainer:
         checkpoint_fname = self.checkpoint_save_path / f'checkpoint_{self.iteration}.pt'
         checkpoint_dict = {}
 
-        checkpoint_dict['iteration'] = self.iteration
+        checkpoint_dict['iteration'] = self.starting_iteration + self.iteration
 
         # Save metadata with checkpoint
         self.update_run_metadata()
@@ -247,7 +250,7 @@ class PytorchTrainer:
 
         # Record other data
         for key, value in data.items():
-            self.log_writer.add_scalar(f'{split}.{key}', value, self.iteration)
+            self.log_writer.add_scalar(f'{split}.{key}', value, self.starting_iteration + self.iteration)
 
 
     @classmethod
@@ -296,8 +299,12 @@ class PytorchTrainer:
 
 
     def update_learning_rate(self):
-        alpha = self.iteration / self.total_iterations
-        self.learning_rate = self.final_lr**alpha * self.initial_lr**(1 - alpha)
+        if self.iteration <= self.learning_rate_warm_up_iterations:
+            alpha = self.iteration / self.learning_rate_warm_up_iterations
+            self.learning_rate = alpha * self.initial_lr
+        else:
+            alpha = self.iteration / self.total_iterations
+            self.learning_rate = self.final_lr**alpha * self.initial_lr**(1 - alpha)
 
         for optimizer in self.optimizers.values():
             for param_group in optimizer.param_groups:
@@ -341,7 +348,7 @@ class PytorchTrainer:
 
                         self.update_log(smoothed_results, split='train')
 
-                    if self.iteration % self.iterations_per_lr_update == 0:
+                    if self.iteration <= self.learning_rate_warm_up_iterations or self.iteration % self.iterations_per_lr_update == 0:
                         self.update_learning_rate()
 
                     if self.iteration % self.iterations_per_validation == 0:
