@@ -257,7 +257,7 @@ class PytorchTrainer:
     def to_cuda(cls, minibatch):
         if isinstance(minibatch, (list, tuple)):
             minibatch = [cls.to_cuda(x) for x in minibatch]
-        else:
+        elif hasattr(minibatch, 'cuda'):
             minibatch = minibatch.cuda()
         return minibatch
 
